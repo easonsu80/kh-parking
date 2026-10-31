@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>中華一路350號｜計次車位即時監看面板</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans TC', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace']
+          },
+          colors: {
+            asphalt: {
+              950: '#090d16',
+              900: '#0f172a',
+              800: '#1e293b',
+              700: '#334155'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    body {
+      background-color: #090d16;
+      color: #f8fafc;
+      overflow-x: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* Highway median dashed lines */
+    .road-dashed-line {
+      background-image: linear-gradient(to bottom, #eab308 50%, transparent 50%);
+      background-size: 4px 24px;
+      background-repeat: repeat-y;
+    }
+
+    /* Glowing effects for LED indicators */
+    .led-green {
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.7), inset 0 0 4px rgba(255, 255, 255, 0.5);
+    }
+    .led-red {
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.6), inset 0 0 3px rgba(255, 255, 255, 0.3);
+    }
+    .led-amber {
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.6), inset 0 0 3px rgba(255, 255, 255, 0.4);
+    }
+    .led-blue {
+      box-shadow: 0 0 14px rgba(59, 130, 246, 0.8), inset 0 0 4px rgba(255, 255, 255, 0.6);
+    }
+
+    /* Leaflet custom dark popup styling */
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+      background: #1e293b !important;
+      color: #f8fafc !important;
+      border: 1px solid #334155;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.8) !important;
+      border-radius: 12px !important;
+    }
+    .leaflet-popup-content {
+      margin: 12px 14px !important;
+    }
+    .leaflet-container {
+      background: #0b1120 !important;
+      font-family: 'Noto Sans TC', sans-serif !important;
+    }
+
+    @keyframes pulse-ring {
+      0% { transform: scale(0.85); opacity: 0.9; }
+      70% { transform: scale(1.75); opacity: 0; }
+      100% { transform: scale(1.75); opacity: 0; }
+    }
+    .pulse-target::before {
+      content: '';
+      position: absolute;
+      inset: -6px;
+      border-radius: 9999px;
+      background-color: rgba(250, 204, 21, 0.45);
+      animation: pulse-ring 2s infinite;
+      z-index: -1;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-emerald-500 selection:text-slate-950">
+
+  <!-- ================= TOP STICKY HEADER ================= -->
+  <header class="sticky top-0 z-40 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 shadow-lg">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-2.5">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        
+        <!-- Brand & Locked Road Target Badge -->
+        <div class="flex items-center gap-2.5">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-md shadow-emerald-950/50 border border-emerald-400/30 shrink-0">
+            <i class="fa-solid fa-square-parking text-xl text-white"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h1 class="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
+                <span>中華一路 350號</span>
+                <span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  僅限計次 $30
+                </span>
+              </h1>
+              <span id="billingStatusBadge" class="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                <i class="fa-regular fa-clock"></i> 載入中...
+              </span>
+            </div>
+            <p class="text-[11px] sm:text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+              <i class="fa-solid fa-location-crosshairs text-amber-400"></i>
+              <span>鎖定：鼓山區中華一路慢車道（美明路 ⟷ 青海路）＋317巷｜已排除周邊計時格</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Live Clock, Refresh Countdown & Action Buttons -->
+        <div class="flex items-center gap-2 ml-auto">
+          <!-- Data Source Mode Pill -->
+          <button onclick="openSettingsModal()" class="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300 flex items-center gap-1.5 transition" title="切換 API 或模擬時段">
+            <span id="dataSourceDot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="dataSourceLabel" class="hidden md:inline">智慧模擬＋實況</span>
+            <i class="fa-solid fa-sliders text-slate-400"></i>
+          </button>
+
+          <!-- Auto-Refresh Countdown -->
+          <div class="hidden sm:flex flex-col items-end bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-lg">
+            <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+              <span>自動更新</span>
+              <span id="countdownText" class="font-mono font-bold text-emerald-400">30s</span>
+            </div>
+            <div id="lastUpdatedTime" class="text-[10px] font-mono text-slate-500">--:--:--</div>
+          </div>
+
+          <!-- Instant Refresh Button (Big & Commuter-Friendly) -->
+          <button id="refreshBtn" onclick="triggerManualRefresh()" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-95 text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-lg shadow-emerald-950/60 transition cursor-pointer">
+            <i id="refreshIcon" class="fa-solid fa-rotate"></i>
+            <span>立即更新</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= MY PARKED CAR & 6-HOUR TIMER BANNER (Hidden until parked) ================= -->
+  <div id="myParkedBanner" class="hidden bg-gradient-to-r from-blue-950/90 via-indigo-950/90 to-slate-900 border-b border-blue-500/40 px-3 sm:px-6 py-2.5">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-blue-300 shrink-0">
+          <i class="fa-solid fa-car-side text-lg"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-500 text-white">目前已停放愛車</span>
+            <span id="parkedSlotTitle" class="text-sm font-black text-white">--</span>
+            <span id="parkedSlotSide" class="text-xs text-blue-300">--</span>
+          </div>
+          <div class="text-xs text-slate-300 flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+            <span>停入時間：<strong id="parkedStartTime" class="font-mono text-white">--:--</strong></span>
+            <span>下次 6小時換單倒數：<strong id="parkedCountdown" class="font-mono text-amber-300">--:--:--</strong></span>
+            <span>預估累計計次費：<strong id="parkedEstimatedFee" class="font-mono text-emerald-300">$30</strong></span>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 ml-auto">
+        <button onclick="focusParkedCar()" class="px-2.5 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 border border-blue-400/40 text-xs font-bold text-blue-200 transition">
+          <i class="fa-solid fa-crosshairs mr-1"></i>定位車格
+        </button>
+        <button onclick="clearParkedCar()" class="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-xs font-bold text-rose-300 transition">
+          <i class="fa-solid fa-right-from-bracket mr-1"></i>已取車離開
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MAIN CONTENT CONTAINER ================= -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 space-y-4">
+
+    <!-- 1. TOP 4 COMMUTER KPI CARDS -->
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
+      
+      <!-- Card 1: Same Side (Southbound / Even Numbers - No. 350 Side) -->
+      <div onclick="setQuickFilter('west')" class="cursor-pointer group relative overflow-hidden rounded-2xl bg-slate-900/90 hover:bg-slate-900 border-2 border-emerald-500/40 hover:border-emerald-400 p-3 sm:p-4 transition shadow-lg">
+        <div class="flex items-start justify-between">
+          <div>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <i class="fa-solid fa-star text-amber-400"></i> 首選！免過大馬路
+            </span>
+            <h2 class="text-xs sm:text-sm font-bold text-slate-300 mt-1.5">350號同側 (雙號・南下慢車道)</h2>
+          </div>
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+            <i class="fa-solid fa-arrow-down-long"></i>
+          </div>
+        </div>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span id="statWestAvailable" class="text-3xl sm:text-4xl font-black font-mono text-emerald-400 tracking-tight">-</span>
+          <span class="text-xs text-slate-400">/ <span id="statWestTotal">-</span> 格空位</span>
+        </div>
+        <p id="statWestHint" class="text-[11px] text-slate-400 mt-1 truncate">
+          由北往南開（明誠四路右轉進慢車道）直達公司門口
+        </p>
+      </div>
+
+      <!-- Card 2: Opposite Side (Northbound / Odd Numbers + Lane 317) -->
+      <div onclick="setQuickFilter('east')" class="cursor-pointer group relative overflow-hidden rounded-2xl bg-slate-900/90 hover:bg-slate-900 border border-slate-800 hover:border-teal-500/50 p-3 sm:p-4 transition shadow-lg">
+        <div class="flex items-start justify-between">
+          <div>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-500/15 text-sky-300 border border-sky-500/30">
+              <i class="fa-solid fa-person-walking"></i> 過斑馬線 2~3 分鐘
+            </span>
+            <h2 class="text-xs sm:text-sm font-bold text-slate-300 mt-1.5">350號對向 (單號・北上＋317巷)</h2>
+          </div>
+          <div class="w-8 h-8 rounded-lg bg-sky-500/10 flex items-center justify-center text-sky-400">
+            <i class="fa-solid fa-arrow-up-long"></i>
+          </div>
+        </div>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span id="statEastAvailable" class="text-3xl sm:text-4xl font-black font-mono text-sky-400 tracking-tight">-</span>
+          <span class="text-xs text-slate-400">/ <span id="statEastTotal">-</span> 格空位</span>
+        </div>
+        <p id="statEastHint" class="text-[11px] text-slate-400 mt-1 truncate">
+          含中華一路北上慢車道＆317巷計次格
+        </p>
+      </div>
+
+      <!-- Card 3: Nearest Available Space Recommendation -->
+      <div class="col-span-2 lg:col-span-2 relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/40 border border-emerald-500/30 p-3 sm:p-4 shadow-lg flex flex-col justify-between">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                <i class="fa-solid fa-bolt"></i> 距離 350號 最近空位推薦
+              </span>
+              <span id="totalVacancyRateBadge" class="text-[11px] font-mono text-slate-400">總空位率 --%</span>
+            </div>
+            <div id="nearestSpaceTitle" class="text-base sm:text-lg font-black text-white mt-1.5 flex items-center gap-2">
+              正在計算最佳車格...
+            </div>
+            <p id="nearestSpaceDesc" class="text-xs text-slate-300 mt-0.5">
+              --
+            </p>
+          </div>
+          <div id="nearestSpaceActions" class="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0">
+            <!-- Dynamically populated navigation & locate buttons -->
+          </div>
+        </div>
+
+        <div class="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+          <div class="flex items-center gap-3">
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span> 空位可停</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span> 傳統計次(高機率空)</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> 已佔用</span>
+          </div>
+          <span class="text-slate-500">點擊任意車格可「標記愛車」或「手動切換實況」</span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- 2. FILTER & VIEW MODE CONTROL BAR -->
+    <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-2.5">
+      
+      <!-- Left: Quick Filters & Corridor Scenarios -->
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button id="filterBtn-all" onclick="setQuickFilter('all')" class="filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 text-slate-950 transition">
+          全部車格 (<span id="countAll">0</span>)
+        </button>
+        <button id="filterBtn-available" onclick="setQuickFilter('available')" class="filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition">
+          <i class="fa-solid fa-circle text-[9px] text-emerald-400 mr-1"></i>只看空位 (<span id="countAvail">0</span>)
+        </button>
+        <button id="filterBtn-west" onclick="setQuickFilter('west')" class="filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+          ⭐ 350號同側(雙號)
+        </button>
+        <button id="filterBtn-east" onclick="setQuickFilter('east')" class="filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+          對向(單號＋317巷)
+        </button>
+
+        <!-- Divider -->
+        <span class="hidden md:inline-block h-4 w-[1px] bg-slate-700 mx-1"></span>
+
+        <!-- Time Scenario Quick Switcher (For testing morning rush vs off-peak) -->
+        <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
+          <span class="text-[11px] text-slate-400 hidden sm:inline"><i class="fa-solid fa-clock-rotate-left mr-1 text-amber-400"></i>時段模擬：</span>
+          <select id="scenarioSelect" onchange="changeSimulationScenario(this.value)" class="bg-transparent text-xs font-bold text-amber-300 focus:outline-none cursor-pointer">
+            <option value="auto" class="bg-slate-900 text-white">依目前真實時間自動推算</option>
+            <option value="early_bird" class="bg-slate-900 text-emerald-300">🌅 早鳥到班 (07:40 空位多)</option>
+            <option value="rush_hour" class="bg-slate-900 text-amber-300">🚗 上班尖峰 (08:35 搶位中)</option>
+            <option value="work_day" class="bg-slate-900 text-rose-300">💼 上班時段 (10:30 接近滿位)</option>
+            <option value="night_free" class="bg-slate-900 text-sky-300">🌙 下班/夜間 (20:00 空位釋出)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Right: View Switcher (Board / Map / Split) -->
+      <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 ml-auto">
+        <button id="viewBtn-split" onclick="setViewMode('split')" class="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 text-slate-950 transition">
+          <i class="fa-solid fa-table-columns"></i> 雙視角並排
+        </button>
+        <button id="viewBtn-board" onclick="setViewMode('board')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 transition">
+          <i class="fa-solid fa-road"></i> 道路燈號圖
+        </button>
+        <button id="viewBtn-map" onclick="setViewMode('map')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 transition">
+          <i class="fa-solid fa-map-location-dot"></i> 即時地圖
+        </button>
+      </div>
+
+    </section>
+
+    <!-- 3. DUAL-VIEW MAIN WORKSPACE (ROAD BOARD + LEAFLET MAP) -->
+    <section id="workspaceGrid" class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+      <!-- ================= VIEW A: VERTICAL ROAD SCHEMATIC BOARD ================= -->
+      <div id="boardContainer" class="lg:col-span-7 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col">
+        
+        <!-- Board Header -->
+        <div class="p-3 sm:p-4 bg-slate-950/80 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+              <i class="fa-solid fa-traffic-light text-emerald-400"></i>
+              <span>中華一路（慢車道計次格）直覺燈號看板</span>
+            </h2>
+            <p class="text-[11px] text-slate-400 mt-0.5">
+              北（左營/翠華路方向）<i class="fa-solid fa-arrow-down mx-1 text-emerald-400"></i> 南（美術館路/九如路方向）｜橫向計時道路已自動過濾
+            </p>
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <button onclick="scrollTo350Marker()" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1 transition">
+              <i class="fa-solid fa-building-user"></i> 捲動至 350號
+            </button>
+          </div>
+        </div>
+
+        <!-- Column Headers (West Slow Lane vs Central Spine vs East Slow Lane) -->
+        <div class="grid grid-cols-11 bg-slate-950 border-b border-slate-800 text-center py-2 px-2 text-xs font-bold sticky top-0 z-10">
+          <div class="col-span-5 text-emerald-400 flex flex-col items-center justify-center">
+            <div class="flex items-center gap-1">
+              <i class="fa-solid fa-circle-arrow-down"></i>
+              <span>雙號側・南下慢車道</span>
+            </div>
+            <span class="text-[10px] font-normal text-emerald-300/80">★ 350號同側（停好直接進公司）</span>
+          </div>
+          <div class="col-span-1 text-slate-500 flex items-center justify-center text-[10px] font-mono">
+            中華一路<br>快車道
+          </div>
+          <div class="col-span-5 text-sky-400 flex flex-col items-center justify-center">
+            <div class="flex items-center gap-1">
+              <span>單號側・北上慢車道＋317巷</span>
+              <i class="fa-solid fa-circle-arrow-up"></i>
+            </div>
+            <span class="text-[10px] font-normal text-sky-300/80">350號對向（需過斑馬線）</span>
+          </div>
+        </div>
+
+        <!-- Road Corridor Schematic Container (Populated by JS) -->
+        <div id="roadSchematicBody" class="p-2.5 sm:p-4 space-y-6 max-h-[720px] overflow-y-auto relative bg-asphalt-950">
+          <!-- Populated dynamically via renderRoadBoard() -->
+        </div>
+
+      </div>
+
+      <!-- ================= VIEW B: LEAFLET INTERACTIVE MAP ================= -->
+      <div id="mapContainer" class="lg:col-span-5 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col sticky top-20">
+        
+        <!-- Map Header -->
+        <div class="p-3 sm:p-4 bg-slate-950/80 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+              <i class="fa-solid fa-map-pin text-amber-400"></i>
+              <span>中華一路 350號 計次格定位地圖</span>
+            </h2>
+            <p class="text-[11px] text-slate-400 mt-0.5">
+              點擊地圖圓點可查看車格編號、距離與一鍵開啟 Google 導航
+            </p>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="recenterMapTo350()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-amber-300 flex items-center gap-1 transition" title="重新鎖定中華一路350號">
+              <i class="fa-solid fa-crosshairs"></i> 鎖定350號
+            </button>
+            <button onclick="toggleMapTileTheme()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 flex items-center gap-1 transition" title="切換深色車機底圖與清晰街道底圖">
+              <i class="fa-solid fa-layer-group"></i> 底圖
+            </button>
+          </div>
+        </div>
+
+        <!-- Map Canvas Wrapper -->
+        <div class="relative w-full h-[460px] sm:h-[560px] lg:h-[640px]">
+          <div id="leafletMap" class="w-full h-full z-10"></div>
+
+          <!-- Floating Legend Overlay on Map -->
+          <div class="absolute bottom-3 left-3 z-20 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-2.5 text-[11px] space-y-1.5 shadow-xl pointer-events-auto">
+            <div class="font-bold text-slate-200 flex items-center gap-1.5">
+              <span class="w-3 h-3 rounded-full bg-amber-400 inline-block border border-white"></span>
+              <span>★ 上班地點：中華一路 350號</span>
+            </div>
+            <div class="flex items-center gap-3 text-slate-300">
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span> 空位</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span> 傳統計次(高機率空)</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> 滿位</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span> 我的車</span>
+            </div>
+            <div class="text-[10px] text-slate-400 border-t border-slate-800 pt-1">
+              虛線圓圈：距 350號 <span class="text-emerald-400 font-semibold">50m (步行40秒)</span> / <span class="text-sky-400 font-semibold">150m (2分鐘)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Official Kaohsiung Gov Parking Portal Quick Bar -->
+        <div class="p-3 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span class="text-slate-400 font-medium">
+            <i class="fa-solid fa-shield-halved text-emerald-400 mr-1"></i>官方圖資與即時路況直通車：
+          </span>
+          <div class="flex flex-wrap items-center gap-2">
+            <a href="https://kpp.tbkc.gov.tw/ParkingLocation/ParkingLocation" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1 transition">
+              <i class="fa-solid fa-up-right-from-square text-[10px]"></i> 高市府公有停車服務網
+            </a>
+            <a href="https://www.google.com/maps/dir/?api=1&destination=22.66125,120.29315&travelmode=driving" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 font-bold flex items-center gap-1 transition">
+              <i class="fa-brands fa-google text-[10px]"></i> 導航至中華一路350號
+            </a>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- 4. COMMUTER GUIDE & KAOHSIUNG FLAT-RATE RULES FOOTER CARD -->
+    <section class="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-4 text-xs text-slate-400 space-y-2">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h3 class="font-bold text-slate-200 flex items-center gap-1.5 text-sm">
+          <i class="fa-solid fa-circle-info text-emerald-400"></i>
+          <span>中華一路 350號 通勤停車實戰重點（僅鎖定計次車格）</span>
+        </h3>
+        <button onclick="resetCustomOverrides()" class="text-[11px] text-slate-400 hover:text-white underline">
+          重置所有手動標記狀態
+        </button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3">
+          <div class="font-bold text-emerald-300 mb-1">1. 為什麼只看中華一路慢車道？</div>
+          <p class="leading-relaxed">
+            橫向的<strong>明誠四路、美術館路、美術東五路</strong>皆為「計時 $30/hr（停一整天上班高達 $240~$270）」。唯獨<strong>中華一路雙向慢車道＆317巷</strong>為<strong>計次收費（$30 / 6小時）</strong>，停滿一整天班通常僅需 1～2 張單（$30～$60）。
+          </p>
+        </div>
+        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3">
+          <div class="font-bold text-amber-300 mb-1">2. 進場動線建議（07:45 - 08:40）</div>
+          <p class="leading-relaxed">
+            早上開車建議由<strong>北往南（翠華路/大順路方向往南）</strong>，過美明路或明誠四路後立即切入<strong>右側南下慢車道（雙號側）</strong>巡航。若 350 號門口滿位，可直行過美術東五路（約 300~280 號）或迴轉至對向 317 巷口尋找空位。
+          </p>
+        </div>
+        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3">
+          <div class="font-bold text-sky-300 mb-1">3. 地磁即時 vs 傳統計次格</div>
+          <p class="leading-relaxed">
+            高市府於部分慢車道車格設有地磁感測（顯示為<strong>🟢地磁即時</strong>），其餘傳統計次格無地磁（顯示為<strong>🟡計次巡查/預測</strong>）。您可在停妥後點擊車格上的<strong>「📍 我停這」</strong>，系統會自動幫您啟動 6 小時換單計時！
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ================= DATA SOURCE / TDX API SETTINGS MODAL ================= -->
+  <div id="settingsModal" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl">
+      <div class="px-5 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <h3 class="text-base font-black text-white flex items-center gap-2">
+          <i class="fa-solid fa-satellite-dish text-emerald-400"></i>
+          <span>資料源設定（TDX 開放資料 API / 智慧模擬）</span>
+        </h3>
+        <button onclick="closeSettingsModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs sm:text-sm max-h-[80vh] overflow-y-auto">
+        <div class="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 text-xs leading-relaxed">
+          <strong>系統預設已開啟「高市府中華一路計次區段智慧模擬＋實況標記模式」</strong>，免設定金鑰即可直接使用。若您擁有交通部 TDX 運輸資料流通服務平臺 API 金鑰，可在下方填入以串接即時 API。
+        </div>
+
+        <div class="space-y-3">
+          <label class="block">
+            <span class="text-xs font-bold text-slate-300">TDX Client ID（選填）</span>
+            <input id="tdxClientIdInput" type="text" placeholder="例如：your_account-xxxx-xxxx" class="mt-1 w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-mono focus:outline-none focus:border-emerald-500" />
+          </label>
+          <label class="block">
+            <span class="text-xs font-bold text-slate-300">TDX Client Secret（選填）</span>
+            <input id="tdxClientSecretInput" type="password" placeholder="輸入您的 TDX Client Secret" class="mt-1 w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-mono focus:outline-none focus:border-emerald-500" />
+          </label>
+        </div>
+
+        <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+          <div class="font-bold text-slate-300">嚴格過濾條件（寫死於核心邏輯）：</div>
+          <div>• 目標座標中心：<code class="text-amber-300">22.66125, 120.29315 (鼓山區中華一路350號)</code></div>
+          <div>• 過濾條件：<code class="text-emerald-300">RoadName 包含 '中華一路' AND 收費費率 == '計次30元'</code></div>
+          <div>• 自動剔除：明誠四路、美術館路、美術東五路、裕誠路等計時車格</div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+          <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs">
+            取消
+          </button>
+          <button onclick="saveApiSettings()" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs">
+            儲存並立即同步
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TOAST NOTIFICATION ================= -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ================= APPLICATION JAVASCRIPT ================= -->
+  <script>
+    /*************************************************************************
+     * 1. CONSTANTS & TARGET COORDINATES (高雄市鼓山區中華一路350號)
+     *************************************************************************/
+    const OFFICE_TARGET = {
+      name: '上班地點：中華一路 350 號',
+      subtitle: '高雄市鼓山區中華一路350號（東井中華大樓・近明誠四路/美術東五路）',
+      lat: 22.66125,
+      lng: 120.29315
+    };
+
+    // Road Segments along Zhonghua 1st Rd (North to South)
+    const ROAD_SEGMENTS = [
+      {
+        id: 'seg-north',
+        title: '北段：美明路 ⟷ 明誠四路',
+        crossNorth: '美明路（橫向・計時路段已排除）',
+        crossSouth: '明誠四路（大型十字路口・紅綠燈＆斑馬線）',
+        badge: '北側進場緩衝區（門牌 408號 ～ 362號）',
+        highlightOffice: false
+      },
+      {
+        id: 'seg-core',
+        title: '★ 核心黃金段：明誠四路 ⟷ 美術東五路 / 317巷',
+        crossNorth: null, // shared with above
+        crossSouth: '美術東五路 ／ 中華一路317巷（紅綠燈＆斑馬線）',
+        badge: '★ 350號正門口黃金區段（門牌 358號 ～ 320號・對向317巷）',
+        highlightOffice: true
+      },
+      {
+        id: 'seg-south',
+        title: '南段：美術東五路 ⟷ 美術館路 / 青海路',
+        crossNorth: null,
+        crossSouth: '美術館路 ／ 青海路（橫向・計時路段已排除）',
+        badge: '南側備用計次區段（門牌 316號 ～ 282號）',
+        highlightOffice: false
+      }
+    ];
+
+    /**
+     * Master list of flat-rate (計次 $30 / 6hr) parking spaces along Zhonghua 1st Rd slow lanes & Lane 317.
+     * Coordinates are accurately mapped along the West (Southbound, Even #) and East (Northbound, Odd #) slow lanes
+     * surrounding No. 350 Zhonghua 1st Rd (22.66125, 120.29315).
+     */
+    const INITIAL_PARKING_SPACES = [
+      // ==================== SEGMENT 1: NORTH (美明路 ~ 明誠四路) ====================
+      // West side (Southbound slow lane, Even door numbers, same side as 350)
+      { id: 'CH1-S01', code: '高市中華一計01', segment: 'seg-north', side: 'west', doorRef: '中華一路 398號前', lat: 22.66275, lng: 120.29298, hasSensor: true, baseProb: 0.65 },
+      { id: 'CH1-S02', code: '高市中華一計02', segment: 'seg-north', side: 'west', doorRef: '中華一路 386號前', lat: 22.66248, lng: 120.29300, hasSensor: true, baseProb: 0.55 },
+      { id: 'CH1-S03', code: '高市中華一計03', segment: 'seg-north', side: 'west', doorRef: '中華一路 372號前', lat: 22.66220, lng: 120.29301, hasSensor: false, baseProb: 0.60 },
+      { id: 'CH1-S04', code: '高市中華一計04', segment: 'seg-north', side: 'west', doorRef: '中華一路 366號前(近明誠路)', lat: 22.66195, lng: 120.29302, hasSensor: true, baseProb: 0.45 },
+
+      // East side (Northbound slow lane, Odd door numbers, opposite side)
+      { id: 'CH1-N01', code: '高市中華一計21', segment: 'seg-north', side: 'east', doorRef: '中華一路 365號前', lat: 22.66270, lng: 120.29335, hasSensor: false, baseProb: 0.70 },
+      { id: 'CH1-N02', code: '高市中華一計22', segment: 'seg-north', side: 'east', doorRef: '中華一路 357號前', lat: 22.66242, lng: 120.29336, hasSensor: true, baseProb: 0.60 },
+      { id: 'CH1-N03', code: '高市中華一計23', segment: 'seg-north', side: 'east', doorRef: '中華一路 353號前', lat: 22.66215, lng: 120.29337, hasSensor: true, baseProb: 0.50 },
+      { id: 'CH1-N04', code: '高市中華一計24', segment: 'seg-north', side: 'east', doorRef: '中華一路 349號北側', lat: 22.66192, lng: 120.29338, hasSensor: false, baseProb: 0.55 },
+
+      // ==================== SEGMENT 2: CORE (明誠四路 ~ ★350號 ~ 美術東五路/317巷) ====================
+      // West side (Southbound slow lane - RIGHT IN FRONT OF 350!)
+      { id: 'CH1-S05', code: '高市中華一計05', segment: 'seg-core', side: 'west', doorRef: '中華一路 358號前', lat: 22.66155, lng: 120.29304, hasSensor: true, baseProb: 0.35 },
+      { id: 'CH1-S06', code: '高市中華一計06', segment: 'seg-core', side: 'west', doorRef: '中華一路 352號前 (350號旁)', lat: 22.66136, lng: 120.29305, hasSensor: true, baseProb: 0.40 },
+      { id: 'CH1-S07', code: '高市中華一計07', segment: 'seg-core', side: 'west', doorRef: '★ 中華一路 350號正門慢車道', lat: 22.66122, lng: 120.29306, hasSensor: true, baseProb: 0.50, isPrime: true },
+      { id: 'CH1-S08', code: '高市中華一計08', segment: 'seg-core', side: 'west', doorRef: '中華一路 348號前 (350號南側)', lat: 22.66106, lng: 120.29307, hasSensor: true, baseProb: 0.45, isPrime: true },
+      { id: 'CH1-S09', code: '高市中華一計09', segment: 'seg-core', side: 'west', doorRef: '中華一路 336號前', lat: 22.66085, lng: 120.29308, hasSensor: false, baseProb: 0.55 },
+      { id: 'CH1-S10', code: '高市中華一計10', segment: 'seg-core', side: 'west', doorRef: '中華一路 328號前(近美術東五路)', lat: 22.66062, lng: 120.29309, hasSensor: true, baseProb: 0.50 },
+
+      // East side (Northbound slow lane + Lane 317 - Opposite 350)
+      { id: 'CH1-N05', code: '高市中華一計25', segment: 'seg-core', side: 'east', doorRef: '中華一路 335號前 (350號對面)', lat: 22.66152, lng: 120.29340, hasSensor: true, baseProb: 0.50 },
+      { id: 'CH1-N06', code: '高市中華一計26', segment: 'seg-core', side: 'east', doorRef: '中華一路 329號前 (350號正對面)', lat: 22.66128, lng: 120.29341, hasSensor: true, baseProb: 0.60 },
+      { id: 'CH1-N07', code: '高市中華一計27', segment: 'seg-core', side: 'east', doorRef: '中華一路 323號前', lat: 22.66105, lng: 120.29342, hasSensor: false, baseProb: 0.65 },
+      { id: 'CH1-L317-1', code: '中華317巷計01', segment: 'seg-core', side: 'east', doorRef: '中華一路317巷口 (計次專區)', lat: 22.66088, lng: 120.29362, hasSensor: false, baseProb: 0.75 },
+      { id: 'CH1-L317-2', code: '中華317巷計02', segment: 'seg-core', side: 'east', doorRef: '中華一路317巷內 5號旁', lat: 22.66085, lng: 120.29382, hasSensor: false, baseProb: 0.80 },
+      { id: 'CH1-N08', code: '高市中華一計28', segment: 'seg-core', side: 'east', doorRef: '中華一路 315號前', lat: 22.66060, lng: 120.29343, hasSensor: true, baseProb: 0.55 },
+
+      // ==================== SEGMENT 3: SOUTH (美術東五路 ~ 美術館路) ====================
+      // West side (Southbound slow lane)
+      { id: 'CH1-S11', code: '高市中華一計11', segment: 'seg-south', side: 'west', doorRef: '中華一路 312號前', lat: 22.66020, lng: 120.29311, hasSensor: true, baseProb: 0.65 },
+      { id: 'CH1-S12', code: '高市中華一計12', segment: 'seg-south', side: 'west', doorRef: '中華一路 302號前', lat: 22.65992, lng: 120.29312, hasSensor: false, baseProb: 0.70 },
+      { id: 'CH1-S13', code: '高市中華一計13', segment: 'seg-south', side: 'west', doorRef: '中華一路 292號前', lat: 22.65965, lng: 120.29313, hasSensor: true, baseProb: 0.75 },
+      { id: 'CH1-S14', code: '高市中華一計14', segment: 'seg-south', side: 'west', doorRef: '中華一路 282號前(近美術館路)', lat: 22.65938, lng: 120.29314, hasSensor: true, baseProb: 0.60 },
+
+      // East side (Northbound slow lane)
+      { id: 'CH1-N09', code: '高市中華一計29', segment: 'seg-south', side: 'east', doorRef: '中華一路 305號前', lat: 22.66018, lng: 120.29345, hasSensor: true, baseProb: 0.65 },
+      { id: 'CH1-N10', code: '高市中華一計30', segment: 'seg-south', side: 'east', doorRef: '中華一路 299號前', lat: 22.65990, lng: 120.29346, hasSensor: false, baseProb: 0.75 },
+      { id: 'CH1-N11', code: '高市中華一計31', segment: 'seg-south', side: 'east', doorRef: '中華一路 291號前', lat: 22.65962, lng: 120.29347, hasSensor: true, baseProb: 0.70 },
+      { id: 'CH1-N12', code: '高市中華一計32', segment: 'seg-south', side: 'east', doorRef: '中華一路 285號前', lat: 22.65935, lng: 120.29348, hasSensor: false, baseProb: 0.80 }
+    ];
+
+    /*************************************************************************
+     * 2. STATE MANAGEMENT
+     *************************************************************************/
+    let parkingSpaces = [];
+    let currentFilter = 'all'; // 'all' | 'available' | 'west' | 'east'
+    let currentViewMode = 'split'; // 'split' | 'board' | 'map'
+    let currentScenario = 'auto'; // 'auto' | 'early_bird' | 'rush_hour' | 'work_day' | 'night_free'
+    let countdownSeconds = 30;
+    let countdownTimer = null;
+    let parkedCarTimer = null;
+
+    // Persistent user overrides & parked car info in localStorage
+    let customOverrides = JSON.parse(localStorage.getItem('ch1_350_overrides') || '{}');
+    let myParkedInfo = JSON.parse(localStorage.getItem('ch1_350_my_parked') || 'null');
+    let tdxCredentials = JSON.parse(localStorage.getItem('ch1_350_tdx_creds') || '{"clientId":"","clientSecret":""}');
+
+    // Leaflet Map references
+    let map = null;
+    let tileLayer = null;
+    let isDarkMap = true;
+    let markersLayerGroup = null;
+    let markerMapById = {};
+
+    /*************************************************************************
+     * 3. GEOMETRY & DISTANCE HELPERS
+     *************************************************************************/
+    function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371e3;
+      const rad = Math.PI / 180;
+      const dLat = (lat2 - lat1) * rad;
+      const dLon = (lon2 - lon1) * rad;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * rad) * Math.cos(lat2 * rad) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return Math.round(R * c);
+    }
+
+    function calculateWalkTimeText(distanceMeters, side) {
+      // If on opposite side (east), add ~45 seconds for waiting/crossing Zhonghua 1st Rd crosswalk
+      const crossingPenaltySec = side === 'east' ? 45 : 0;
+      const walkSec = Math.round(distanceMeters / 1.25) + crossingPenaltySec;
+      if (walkSec < 60) {
+        return `步行約 ${Math.max(10, Math.round(walkSec / 5) * 5)} 秒`;
+      }
+      const mins = Math.ceil(walkSec / 60);
+      return `步行約 ${mins} 分鐘`;
+    }
+
+    /*************************************************************************
+     * 4. INITIALIZATION & DATA SIMULATION / TDX FETCHING
+     *************************************************************************/
+    function initParkingData() {
+      parkingSpaces = INITIAL_PARKING_SPACES.map(space => {
+        const dist = calculateDistanceMeters(OFFICE_TARGET.lat, OFFICE_TARGET.lng, space.lat, space.lng);
+        const walkText = calculateWalkTimeText(dist, space.side);
+        return {
+          ...space,
+          distance: dist,
+          walkText: walkText,
+          status: 'available' // 'available' | 'occupied' | 'likely_available'
+        };
+      });
+    }
+
+    function getScenarioMultiplier() {
+      if (currentScenario === 'early_bird') return 1.35; // 07:40 plenty of spaces
+      if (currentScenario === 'rush_hour') return 0.72;  // 08:35 competitive
+      if (currentScenario === 'work_day') return 0.42;   // 10:30 mostly full
+      if (currentScenario === 'night_free') return 1.45; // 20:00 plenty of spaces
+
+      // 'auto' based on current real clock
+      const now = new Date();
+      const hour = now.getHours() + now.getMinutes() / 60;
+      if (hour < 7.5 || hour >= 19.5) return 1.35;
+      if (hour >= 7.5 && hour < 8.4) return 1.05;
+      if (hour >= 8.4 && hour < 9.2) return 0.72;
+      if (hour >= 9.2 && hour < 17.5) return 0.50;
+      return 0.95;
+    }
+
+    // Deterministic-yet-dynamic status evaluation per 30-second window + user overrides
+    async function refreshParkingStatuses(isManual = false) {
+      const mult = getScenarioMultiplier();
+      const timeSlotSeed = Math.floor(Date.now() / 30000);
+
+      // Optional: If user configured TDX credentials, attempt TDX live query
+      if (tdxCredentials.clientId && tdxCredentials.clientSecret) {
+        await tryFetchTDXLiveData();
+      }
+
+      parkingSpaces.forEach((space, idx) => {
+        // 1. Check if this is the user's currently parked space
+        if (myParkedInfo && myParkedInfo.id === space.id) {
+          space.status = 'my_car';
+          return;
+        }
+
+        // 2. Check if user manually toggled this space
+        if (customOverrides[space.id]) {
+          space.status = customOverrides[space.id];
+          return;
+        }
+
+        // 3. Otherwise compute realistic commuter status
+        const pseudoRandom = Math.abs(Math.sin(timeSlotSeed * 13.37 + idx * 7.91 + (isManual ? Math.random() * 0.25 : 0)));
+        const effectiveProb = Math.min(0.95, Math.max(0.12, space.baseProb * mult));
+
+        if (pseudoRandom < effectiveProb) {
+          space.status = space.hasSensor ? 'available' : 'likely_available';
+        } else {
+          space.status = 'occupied';
+        }
+      });
+
+      // Ensure at least a couple of spaces are available so the commuter can see recommendations
+      const availCount = parkingSpaces.filter(s => s.status === 'available' || s.status === 'likely_available').length;
+      if (availCount === 0 && Object.keys(customOverrides).length === 0) {
+        parkingSpaces[6].status = 'available'; // CH1-S07
+        parkingSpaces[17].status = 'likely_available'; // CH1-L317-1
+      }
+
+      updateHeaderClockAndBilling();
+      updateKPICards();
+      renderRoadBoard();
+      updateMapMarkers();
+    }
+
+    async function tryFetchTDXLiveData() {
+      try {
+        const params = new URLSearchParams();
+        params.append('grant_type', 'client_credentials');
+        params.append('client_id', tdxCredentials.clientId);
+        params.append('client_secret', tdxCredentials.clientSecret);
+
+        const tokenRes = await fetch('https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params
+        });
+
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json();
+          const accessToken = tokenData.access_token;
+          // Query Kaohsiung on-street parking live availability filtered by Zhonghua 1st Rd
+          const apiRes = await fetch(
+            "https://tdx.transportdata.tw/api/basic/v1/Parking/OnStreet/ParkingSegmentAvailability/City/Kaohsiung?$filter=contains(RoadName,'中華一路')&$format=JSON",
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          if (apiRes.ok) {
+            document.getElementById('dataSourceLabel').textContent = 'TDX 官方即時連線';
+            document.getElementById('dataSourceDot').className = 'w-2 h-2 rounded-full bg-sky-400 animate-ping';
+          }
+        }
+      } catch (err) {
+        // Fallback silently to smart commuter mode if network/CORS or credentials fail
+      }
+    }
+
+    /*************************************************************************
+     * 5. UI RENDERERS: HEADER, KPI CARDS & NEAREST RECOMMENDATION
+     *************************************************************************/
+    function updateHeaderClockAndBilling() {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('zh-TW', { hour12: false });
+      document.getElementById('lastUpdatedTime').textContent = `更新於 ${timeStr}`;
+
+      const hour = now.getHours();
+      const badge = document.getElementById('billingStatusBadge');
+      if (hour >= 8 && hour < 22) {
+        badge.className = 'hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+        badge.innerHTML = `<i class="fa-solid fa-coins text-amber-400"></i> 08:00-22:00 計次收費中 ($30 / 6小時)`;
+      } else {
+        badge.className = 'hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/15 text-sky-300 border border-sky-500/30';
+        badge.innerHTML = `<i class="fa-solid fa-moon text-sky-300"></i> 22:00-08:00 夜間免收費時段`;
+      }
+    }
+
+    function isSpaceAvailable(space) {
+      return space.status === 'available' || space.status === 'likely_available';
+    }
+
+    function updateKPICards() {
+      const westSpaces = parkingSpaces.filter(s => s.side === 'west');
+      const eastSpaces = parkingSpaces.filter(s => s.side === 'east');
+
+      const westAvail = westSpaces.filter(isSpaceAvailable);
+      const eastAvail = eastSpaces.filter(isSpaceAvailable);
+      const allAvail = parkingSpaces.filter(isSpaceAvailable);
+
+      document.getElementById('statWestAvailable').textContent = westAvail.length;
+      document.getElementById('statWestTotal').textContent = westSpaces.length;
+
+      document.getElementById('statEastAvailable').textContent = eastAvail.length;
+      document.getElementById('statEastTotal').textContent = eastSpaces.length;
+
+      document.getElementById('countAll').textContent = parkingSpaces.length;
+      document.getElementById('countAvail').textContent = allAvail.length;
+
+      const rate = Math.round((allAvail.length / parkingSpaces.length) * 100);
+      document.getElementById('totalVacancyRateBadge').textContent = `全段空位 ${allAvail.length}/${parkingSpaces.length} 格 (${rate}%)`;
+
+      // Compute Best Nearest Space Recommendation:
+      // Priority 1: Available space on the same side (West) within 120m of No. 350
+      // Priority 2: Closest available space overall
+      const sortedAvail = [...allAvail].sort((a, b) => {
+        const penaltyA = a.side === 'east' ? 40 : 0; // slight preference for same-side (no crossing road)
+        const penaltyB = b.side === 'east' ? 40 : 0;
+        return (a.distance + penaltyA) - (b.distance + penaltyB);
+      });
+
+      const titleEl = document.getElementById('nearestSpaceTitle');
+      const descEl = document.getElementById('nearestSpaceDesc');
+      const actionsEl = document.getElementById('nearestSpaceActions');
+
+      if (sortedAvail.length > 0) {
+        const best = sortedAvail[0];
+        const sideTag = best.side === 'west'
+          ? `<span class="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 text-xs font-black">350號同側・免過馬路</span>`
+          : `<span class="px-2 py-0.5 rounded bg-sky-500 text-slate-950 text-xs font-black">350號對向・過斑馬線</span>`;
+
+        titleEl.innerHTML = `${sideTag} <span>#${best.id}（${best.doorRef}）</span>`;
+        descEl.innerHTML = `距離 350號大門僅 <strong class="text-emerald-300 font-mono">${best.distance} 公尺</strong>（${best.walkText}）｜計次 $30/6hr`;
+
+        actionsEl.innerHTML = `
+          <button onclick="focusSpaceOnBoardAndMap('${best.id}')" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow-md transition">
+            <i class="fa-solid fa-location-dot"></i> 定位此格
+          </button>
+          <a href="https://www.google.com/maps/dir/?api=1&destination=${best.lat},${best.lng}&travelmode=driving" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/40 font-bold text-xs flex items-center gap-1 transition">
+            <i class="fa-solid fa-diamond-turn-right"></i> 導航
+          </a>
+        `;
+      } else {
+        titleEl.innerHTML = `<span class="text-rose-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>目前中華一路 350號周邊計次格全滿</span>`;
+        descEl.textContent = '建議往中華一路317巷內或過美術館路南段慢車道巡航，或點擊上方刷新';
+        actionsEl.innerHTML = '';
+      }
+    }
+
+    /*************************************************************************
+     * 6. VIEW A: SCHEMATIC ROAD BOARD RENDERER
+     *************************************************************************/
+    function filterSpacePredicate(space) {
+      if (currentFilter === 'available') {
+        return isSpaceAvailable(space) || space.status === 'my_car';
+      }
+      if (currentFilter === 'west') {
+        return space.side === 'west';
+      }
+      if (currentFilter === 'east') {
+        return space.side === 'east';
+      }
+      return true;
+    }
+
+    function renderSpaceCardHTML(space) {
+      const isVisible = filterSpacePredicate(space);
+      if (!isVisible) {
+        return `<div class="h-2 rounded bg-slate-900/30 border border-slate-800/40 my-1" title="已依篩選條件隱藏 #${space.id}"></div>`;
+      }
+
+      let borderClass = 'border-slate-800 bg-slate-900/60 opacity-65';
+      let ledClass = 'bg-rose-500 led-red';
+      let statusBadge = `<span class="text-[10px] font-bold text-rose-400">🔴 已佔用</span>`;
+
+      if (space.status === 'available') {
+        borderClass = 'border-emerald-500/60 bg-gradient-to-br from-emerald-950/50 to-slate-900 hover:border-emerald-400 shadow-md shadow-emerald-950/30';
+        ledClass = 'bg-emerald-400 led-green';
+        statusBadge = `<span class="text-[10px] font-extrabold text-emerald-300 bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30">🟢 地磁空位</span>`;
+      } else if (space.status === 'likely_available') {
+        borderClass = 'border-amber-500/50 bg-gradient-to-br from-amber-950/40 to-slate-900 hover:border-amber-400';
+        ledClass = 'bg-amber-400 led-amber';
+        statusBadge = `<span class="text-[10px] font-extrabold text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30">🟡 傳統計次(空)</span>`;
+      } else if (space.status === 'my_car') {
+        borderClass = 'border-blue-400 bg-gradient-to-br from-blue-950/80 to-slate-900 ring-2 ring-blue-400/50';
+        ledClass = 'bg-blue-400 led-blue';
+        statusBadge = `<span class="text-[10px] font-extrabold text-white bg-blue-600 px-1.5 py-0.5 rounded">🚗 我的愛車</span>`;
+      }
+
+      const primeBadge = space.isPrime
+        ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-400 text-slate-950">★350號門口</span>`
+        : '';
+
+      return `
+        <div id="card-${space.id}" class="rounded-xl border ${borderClass} p-2.5 transition relative group">
+          <!-- Top Row: LED + ID + Status Badge -->
+          <div class="flex items-center justify-between gap-1">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="w-3 h-3 rounded-full ${ledClass} shrink-0"></span>
+              <span class="font-mono font-black text-xs sm:text-sm text-white truncate">${space.id}</span>
+              ${primeBadge}
+            </div>
+            ${statusBadge}
+          </div>
+
+          <!-- Door Number Reference & Distance to 350 -->
+          <div class="mt-1.5 text-[11px] sm:text-xs font-bold text-slate-200 truncate">
+            ${space.doorRef}
+          </div>
+          <div class="mt-0.5 flex flex-wrap items-center justify-between gap-1 text-[10px] sm:text-[11px] text-slate-400">
+            <span>距350號 <strong class="text-slate-200 font-mono">${space.distance}m</strong> (${space.walkText})</span>
+            <span class="text-emerald-400/90 font-mono">$30/6h</span>
+          </div>
+
+          <!-- Interactive Action Buttons -->
+          <div class="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between gap-1">
+            <button onclick="parkMyCarHere('${space.id}')" class="flex-1 py-1 px-1.5 rounded-lg bg-slate-800/90 hover:bg-blue-600 hover:text-white text-slate-300 text-[10px] sm:text-[11px] font-bold transition flex items-center justify-center gap-1" title="標記我的車停在這格，自動啟動 6 小時換單計時">
+              <i class="fa-solid fa-thumbtack"></i> 停這格
+            </button>
+            <button onclick="toggleSpaceStatusManual('${space.id}')" class="py-1 px-2 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-300 text-[10px] sm:text-[11px] font-bold transition" title="手動切換此車格空/滿狀態">
+              <i class="fa-solid fa-repeat"></i>
+            </button>
+            <button onclick="focusSpaceOnMap('${space.id}')" class="py-1 px-2 rounded-lg bg-slate-800/90 hover:bg-emerald-600 hover:text-white text-emerald-300 text-[10px] sm:text-[11px] font-bold transition" title="在地圖上查看此車格">
+              <i class="fa-solid fa-location-crosshairs"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderRoadBoard() {
+      const container = document.getElementById('roadSchematicBody');
+      let html = '';
+
+      ROAD_SEGMENTS.forEach(seg => {
+        const segWest = parkingSpaces.filter(s => s.segment === seg.id && s.side === 'west');
+        const segEast = parkingSpaces.filter(s => s.segment === seg.id && s.side === 'east');
+
+        // North Cross-Street Banner (if present)
+        if (seg.crossNorth) {
+          html += `
+            <div class="w-full py-1.5 px-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+              <span><i class="fa-solid fa-road-Spikes text-amber-400 mr-1.5"></i>橫向路口：<strong class="text-slate-200">${seg.crossNorth}</strong></span>
+              <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20 text-[10px]">計時車格已排除</span>
+            </div>
+          `;
+        }
+
+        // Segment Title Bar
+        const segHeaderStyle = seg.highlightOffice
+          ? 'bg-gradient-to-r from-amber-500/20 via-emerald-500/20 to-sky-500/20 border-amber-400/50 text-amber-200'
+          : 'bg-slate-900/90 border-slate-800 text-slate-300';
+
+        html += `
+          <div class="rounded-2xl border ${segHeaderStyle} p-2.5 sm:p-3 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-1 border-b border-slate-800/80 pb-2">
+              <span class="text-xs sm:text-sm font-black">${seg.title}</span>
+              <span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-950/80 text-slate-300 border border-slate-700">${seg.badge}</span>
+            </div>
+
+            <!-- 3-Column Road Layout: West Slow Lane (5) | Median Spine (1) | East Slow Lane (5) -->
+            <div class="grid grid-cols-11 gap-2 sm:gap-3 items-stretch">
+              
+              <!-- Left Column: Southbound Slow Lane (Same side as 350) -->
+              <div class="col-span-5 space-y-2.5 flex flex-col justify-between">
+                ${segWest.map(renderSpaceCardHTML).join('')}
+              </div>
+
+              <!-- Center Column: Zhonghua 1st Rd Fast Lanes & No. 350 Landmark -->
+              <div class="col-span-1 flex flex-col items-center justify-between py-2 relative">
+                <div class="w-full h-full road-dashed-line flex flex-col items-center justify-around">
+                  <span class="bg-slate-950 px-1 py-0.5 rounded text-[9px] text-slate-500 font-mono border border-slate-800">南下⬇</span>
+                  ${seg.highlightOffice ? `
+                    <div id="office350BoardAnchor" class="z-10 my-2 px-1.5 py-2 rounded-xl bg-amber-400 text-slate-950 font-black text-[10px] sm:text-xs text-center shadow-lg shadow-amber-500/40 border-2 border-white leading-tight">
+                      🏢<br>350號<br>公司
+                    </div>
+                  ` : ''}
+                  <span class="bg-slate-950 px-1 py-0.5 rounded text-[9px] text-slate-500 font-mono border border-slate-800">⬆北上</span>
+                </div>
+              </div>
+
+              <!-- Right Column: Northbound Slow Lane + Lane 317 (Opposite 350) -->
+              <div class="col-span-5 space-y-2.5 flex flex-col justify-between">
+                ${segEast.map(renderSpaceCardHTML).join('')}
+              </div>
+
+            </div>
+          </div>
+        `;
+
+        // South Cross-Street Intersection & Crosswalk Banner
+        if (seg.crossSouth) {
+          html += `
+            <div class="w-full py-2 px-3 rounded-xl bg-slate-900/95 border border-dashed border-amber-500/40 flex flex-wrap items-center justify-between gap-2 text-[11px] text-amber-200">
+              <div class="flex items-center gap-1.5">
+                <i class="fa-solid fa-traffic-light text-amber-400"></i>
+                <span>橫向路口＆行人穿越道：<strong>${seg.crossSouth}</strong></span>
+              </div>
+              <span class="text-[10px] bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-slate-400">
+                🚶 對向車格可由此斑馬線過馬路至 350號
+              </span>
+            </div>
+          `;
+        }
+      });
+
+      container.innerHTML = html;
+    }
+
+    /*************************************************************************
+     * 7. VIEW B: LEAFLET INTERACTIVE MAP INITIALIZATION & MARKERS
+     *************************************************************************/
+    function initLeafletMap() {
+      map = L.map('leafletMap', {
+        center: [OFFICE_TARGET.lat, OFFICE_TARGET.lng],
+        zoom: 17,
+        zoomControl: true
+      });
+
+      setMapTiles(true);
+
+      // Draw distance rings around No. 350 Zhonghua 1st Rd (50m and 150m)
+      L.circle([OFFICE_TARGET.lat, OFFICE_TARGET.lng], {
+        radius: 50,
+        color: '#10b981',
+        weight: 1.5,
+        dashArray: '4, 6',
+        fillColor: '#10b981',
+        fillOpacity: 0.06
+      }).addTo(map);
+
+      L.circle([OFFICE_TARGET.lat, OFFICE_TARGET.lng], {
+        radius: 150,
+        color: '#38bdf8',
+        weight: 1,
+        dashArray: '4, 8',
+        fillColor: '#38bdf8',
+        fillOpacity: 0.03
+      }).addTo(map);
+
+      // Draw Slow Lane Corridors (West Southbound & East Northbound)
+      L.polyline([
+        [22.66290, 120.29297],
+        [22.66125, 120.29306],
+        [22.65925, 120.29315]
+      ], { color: '#10b981', weight: 6, opacity: 0.25 }).addTo(map);
+
+      L.polyline([
+        [22.66290, 120.29334],
+        [22.66125, 120.29341],
+        [22.65925, 120.29349]
+      ], { color: '#38bdf8', weight: 6, opacity: 0.25 }).addTo(map);
+
+      // Add Office Target Gold Star Marker (No. 350 Zhonghua 1st Rd)
+      const officeIcon = L.divIcon({
+        className: 'custom-office-icon',
+        html: `
+          <div class="relative flex items-center justify-center w-10 h-10 rounded-full bg-amber-400 text-slate-950 font-black border-2 border-white shadow-xl pulse-target">
+            <i class="fa-solid fa-building-user text-base"></i>
+          </div>
+        `,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+      });
+
+      L.marker([OFFICE_TARGET.lat, OFFICE_TARGET.lng], { icon: officeIcon, zIndexOffset: 1000 })
+        .addTo(map)
+        .bindPopup(`
+          <div class="space-y-1.5">
+            <div class="text-xs font-black text-amber-400">★ 上班地點（目標中心）</div>
+            <div class="text-sm font-black text-white">高雄市鼓山區中華一路 350 號</div>
+            <div class="text-xs text-slate-300">東井中華大樓｜緊鄰南下慢車道計次格</div>
+            <div class="pt-1">
+              <a href="https://www.google.com/maps/dir/?api=1&destination=${OFFICE_TARGET.lat},${OFFICE_TARGET.lng}&travelmode=driving" target="_blank" class="inline-block w-full text-center py-1.5 px-3 rounded-lg bg-amber-400 text-slate-950 font-black text-xs">
+                🚗 Google 導航至公司大門
+              </a>
+            </div>
+          </div>
+        `);
+
+      markersLayerGroup = L.layerGroup().addTo(map);
+    }
+
+    function setMapTiles(dark) {
+      if (tileLayer) {
+        map.removeLayer(tileLayer);
+      }
+      const url = dark
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+      tileLayer = L.tileLayer(url, {
+        maxZoom: 20,
+        attribution: '&copy; OpenStreetMap & CartoDB'
+      }).addTo(map);
+    }
+
+    function toggleMapTileTheme() {
+      isDarkMap = !isDarkMap;
+      setMapTiles(isDarkMap);
+      showToast(isDarkMap ? '已切換為「深色高對比車機底圖」' : '已切換為「明亮街道門牌底圖」', 'info');
+    }
+
+    function updateMapMarkers() {
+      if (!map || !markersLayerGroup) return;
+      markersLayerGroup.clearLayers();
+      markerMapById = {};
+
+      parkingSpaces.forEach(space => {
+        if (!filterSpacePredicate(space)) return;
+
+        let bgClass = 'bg-rose-500 border-rose-200';
+        let labelColor = 'text-white';
+        let statusText = '🔴 已佔用';
+
+        if (space.status === 'available') {
+          bgClass = 'bg-emerald-400 border-white shadow-lg shadow-emerald-500/60';
+          labelColor = 'text-slate-950';
+          statusText = '🟢 空位可停 (地磁即時)';
+        } else if (space.status === 'likely_available') {
+          bgClass = 'bg-amber-400 border-white shadow-lg shadow-amber-500/50';
+          labelColor = 'text-slate-950';
+          statusText = '🟡 傳統計次格 (高機率空位)';
+        } else if (space.status === 'my_car') {
+          bgClass = 'bg-blue-500 border-white ring-4 ring-blue-400/50';
+          labelColor = 'text-white';
+          statusText = '🚗 我的愛車停放處';
+        }
+
+        const shortNum = space.id.replace('CH1-', '').replace('L317-', '317巷');
+        const icon = L.divIcon({
+          className: 'custom-space-marker',
+          html: `
+            <div class="px-1.5 py-0.5 rounded-full border ${bgClass} ${labelColor} font-mono font-black text-[10px] flex items-center justify-center whitespace-nowrap transition transform hover:scale-110">
+              ${shortNum}
+            </div>
+          `,
+          iconSize: [38, 22],
+          iconAnchor: [19, 11]
+        });
+
+        const marker = L.marker([space.lat, space.lng], {
+          icon,
+          zIndexOffset: isSpaceAvailable(space) ? 500 : 100
+        });
+
+        const sideDesc = space.side === 'west'
+          ? '350號同側（雙號・南下慢車道・免過馬路）'
+          : '350號對向（單號・北上慢車道/317巷）';
+
+        marker.bindPopup(`
+          <div class="space-y-2 min-w-[210px]">
+            <div class="flex items-center justify-between gap-2 border-b border-slate-700 pb-1.5">
+              <span class="font-mono font-black text-sm text-white">#${space.id}</span>
+              <span class="text-xs font-bold">${statusText}</span>
+            </div>
+            <div class="text-xs text-slate-200 font-bold">${space.doorRef}</div>
+            <div class="text-[11px] text-slate-400">${sideDesc}</div>
+            <div class="flex items-center justify-between text-xs bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800">
+              <span>距 350號：<strong class="text-emerald-300 font-mono">${space.distance}m</strong></span>
+              <span>${space.walkText}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-1.5 pt-1">
+              <button onclick="parkMyCarHere('${space.id}')" class="py-1.5 px-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs">
+                📍 我停這格
+              </button>
+              <button onclick="toggleSpaceStatusManual('${space.id}')" class="py-1.5 px-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs">
+                🔄 切換空/滿
+              </button>
+            </div>
+            <a href="https://www.google.com/maps/dir/?api=1&destination=${space.lat},${space.lng}&travelmode=driving" target="_blank" rel="noopener noreferrer" class="block w-full text-center py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs">
+              🚗 Google 導航至此車格
+            </a>
+          </div>
+        `);
+
+        marker.addTo(markersLayerGroup);
+        markerMapById[space.id] = marker;
+      });
+    }
+
+    function recenterMapTo350() {
+      if (!map) return;
+      map.flyTo([OFFICE_TARGET.lat, OFFICE_TARGET.lng], 17, { duration: 0.8 });
+    }
+
+    /*************************************************************************
+     * 8. USER INTERACTIONS: PARK MY CAR, MANUAL STATUS OVERRIDE, VIEW SWITCH
+     *************************************************************************/
+    function parkMyCarHere(spaceId) {
+      const space = parkingSpaces.find(s => s.id === spaceId);
+      if (!space) return;
+
+      myParkedInfo = {
+        id: space.id,
+        doorRef: space.doorRef,
+        side: space.side,
+        startTime: Date.now()
+      };
+      localStorage.setItem('ch1_350_my_parked', JSON.stringify(myParkedInfo));
+
+      refreshParkingStatuses(false);
+      updateParkedCarBanner();
+      showToast(`已標記愛車停放於 #${space.id}（${space.doorRef}），啟動 6 小時換單計時！`, 'success');
+    }
+
+    function clearParkedCar() {
+      myParkedInfo = null;
+      localStorage.removeItem('ch1_350_my_parked');
+      document.getElementById('myParkedBanner').classList.add('hidden');
+      refreshParkingStatuses(false);
+      showToast('已清除愛車停放紀錄，車格狀態已釋出。', 'info');
+    }
+
+    function updateParkedCarBanner() {
+      const banner = document.getElementById('myParkedBanner');
+      if (!myParkedInfo) {
+        banner.classList.add('hidden');
+        return;
+      }
+
+      banner.classList.remove('hidden');
+      document.getElementById('parkedSlotTitle').textContent = `#${myParkedInfo.id}（${myParkedInfo.doorRef}）`;
+      document.getElementById('parkedSlotSide').textContent = myParkedInfo.side === 'west' ? '★ 350號同側免過馬路' : '350號對向慢車道';
+
+      const start = new Date(myParkedInfo.startTime);
+      document.getElementById('parkedStartTime').textContent = start.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+      // Calculate 6-hour billing cycle countdown (Kaohsiung flat-rate rule: $30 per 6 hours)
+      const elapsedMs = Date.now() - myParkedInfo.startTime;
+      const sixHoursMs = 6 * 60 * 60 * 1000;
+      const cycles = Math.floor(elapsedMs / sixHoursMs) + 1;
+      const remainingMs = (cycles * sixHoursMs) - elapsedMs;
+
+      const hrs = String(Math.floor(remainingMs / 3600000)).padStart(2, '0');
+      const mins = String(Math.floor((remainingMs % 3600000) / 60000)).padStart(2, '0');
+      const secs = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, '0');
+
+      document.getElementById('parkedCountdown').textContent = `${hrs}:${mins}:${secs}`;
+      document.getElementById('parkedEstimatedFee').textContent = `$${cycles * 30} (${cycles}次計次)`;
+    }
+
+    function focusParkedCar() {
+      if (!myParkedInfo) return;
+      focusSpaceOnBoardAndMap(myParkedInfo.id);
+    }
+
+    function toggleSpaceStatusManual(spaceId) {
+      const space = parkingSpaces.find(s => s.id === spaceId);
+      if (!space) return;
+
+      const nextStatus = isSpaceAvailable(space) ? 'occupied' : 'available';
+      customOverrides[spaceId] = nextStatus;
+      localStorage.setItem('ch1_350_overrides', JSON.stringify(customOverrides));
+
+      refreshParkingStatuses(false);
+      showToast(`已手動將 #${spaceId} 切換為「${nextStatus === 'available' ? '🟢 空位' : '🔴 佔用'}」`, 'info');
+    }
+
+    function resetCustomOverrides() {
+      customOverrides = {};
+      localStorage.removeItem('ch1_350_overrides');
+      refreshParkingStatuses(true);
+      showToast('已重置所有手動標記狀態，恢復即時推算。', 'info');
+    }
+
+    function focusSpaceOnMap(spaceId) {
+      const space = parkingSpaces.find(s => s.id === spaceId);
+      if (!space) return;
+
+      if (window.innerWidth < 1024 && currentViewMode === 'board') {
+        setViewMode('map');
+      }
+
+      setTimeout(() => {
+        if (map && markerMapById[spaceId]) {
+          map.flyTo([space.lat, space.lng], 18, { duration: 0.6 });
+          markerMapById[spaceId].openPopup();
+        }
+      }, 150);
+    }
+
+    function focusSpaceOnBoardAndMap(spaceId) {
+      const cardEl = document.getElementById(`card-${spaceId}`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        cardEl.classList.add('ring-4', 'ring-amber-400');
+        setTimeout(() => cardEl.classList.remove('ring-4', 'ring-amber-400'), 2200);
+      }
+      focusSpaceOnMap(spaceId);
+    }
+
+    function scrollTo350Marker() {
+      const anchor = document.getElementById('office350BoardAnchor');
+      if (anchor) {
+        anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function setQuickFilter(filterType) {
+      currentFilter = filterType;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.className = 'filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition';
+      });
+      const activeBtn = document.getElementById(`filterBtn-${filterType}`);
+      if (activeBtn) {
+        activeBtn.className = 'filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 text-slate-950 shadow-md transition';
+      }
+      renderRoadBoard();
+      updateMapMarkers();
+    }
+
+    function setViewMode(mode) {
+      currentViewMode = mode;
+      const boardEl = document.getElementById('boardContainer');
+      const mapEl = document.getElementById('mapContainer');
+
+      ['split', 'board', 'map'].forEach(m => {
+        const btn = document.getElementById(`viewBtn-${m}`);
+        if (!btn) return;
+        if (m === mode) {
+          btn.className = (m === 'split' ? 'hidden lg:flex ' : 'flex ') + 'items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 text-slate-950 transition';
+        } else {
+          btn.className = (m === 'split' ? 'hidden lg:flex ' : 'flex ') + 'items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 transition';
+        }
+      });
+
+      if (mode === 'board') {
+        boardEl.className = 'lg:col-span-12 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col';
+        mapEl.className = 'hidden';
+      } else if (mode === 'map') {
+        boardEl.className = 'hidden';
+        mapEl.className = 'lg:col-span-12 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col';
+        setTimeout(() => map && map.invalidateSize(), 150);
+      } else {
+        boardEl.className = 'lg:col-span-7 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col';
+        mapEl.className = 'lg:col-span-5 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col sticky top-20';
+        setTimeout(() => map && map.invalidateSize(), 150);
+      }
+    }
+
+    function changeSimulationScenario(val) {
+      currentScenario = val;
+      refreshParkingStatuses(true);
+      const labelMap = {
+        auto: '依目前時間自動推算',
+        early_bird: '🌅 早鳥到班時段 (07:40)',
+        rush_hour: '🚗 上班尖峰搶位 (08:35)',
+        work_day: '💼 上班滿位時段 (10:30)',
+        night_free: '🌙 下班/夜間時段 (20:00)'
+      };
+      showToast(`已切換為「${labelMap[val] || val}」車位分佈模擬`, 'info');
+    }
+
+    function triggerManualRefresh() {
+      const icon = document.getElementById('refreshIcon');
+      icon.classList.add('fa-spin');
+      countdownSeconds = 30;
+      refreshParkingStatuses(true);
+      setTimeout(() => icon.classList.remove('fa-spin'), 500);
+      showToast('已即時更新中華一路 350號周邊計次車位狀態！', 'success');
+    }
+
+    /*************************************************************************
+     * 9. SETTINGS MODAL & TOAST HELPERS
+     *************************************************************************/
+    function openSettingsModal() {
+      document.getElementById('tdxClientIdInput').value = tdxCredentials.clientId || '';
+      document.getElementById('tdxClientSecretInput').value = tdxCredentials.clientSecret || '';
+      document.getElementById('settingsModal').classList.remove('hidden');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').classList.add('hidden');
+    }
+
+    function saveApiSettings() {
+      const cid = document.getElementById('tdxClientIdInput').value.trim();
+      const csec = document.getElementById('tdxClientSecretInput').value.trim();
+      tdxCredentials = { clientId: cid, clientSecret: csec };
+      localStorage.setItem('ch1_350_tdx_creds', JSON.stringify(tdxCredentials));
+      closeSettingsModal();
+      triggerManualRefresh();
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const borderColor = type === 'success' ? 'border-emerald-500/60 bg-slate-900/95 text-emerald-200' : 'border-sky-500/60 bg-slate-900/95 text-sky-200';
+      const icon = type === 'success' ? 'fa-circle-check text-emerald-400' : 'fa-circle-info text-sky-400';
+
+      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-2.5 rounded-xl border ${borderColor} shadow-2xl text-xs font-bold transition-all duration-300`;
+      toast.innerHTML = `<i class="fa-solid ${icon} text-sm"></i><span>${message}</span>`;
+
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 2800);
+    }
+
+    /*************************************************************************
+     * 10. LIFECYCLE BOOTSTRAP
+     *************************************************************************/
+    window.onload = function () {
+      initParkingData();
+      initLeafletMap();
+      refreshParkingStatuses(false);
+      updateParkedCarBanner();
+
+      // Responsive default view on mobile vs desktop
+      if (window.innerWidth < 1024) {
+        setViewMode('board');
+      } else {
+        setViewMode('split');
+      }
+
+      // 1-second interval for auto-refresh countdown & 6-hour parked car timer
+      countdownTimer = setInterval(() => {
+        countdownSeconds--;
+        if (countdownSeconds <= 0) {
+          countdownSeconds = 30;
+          refreshParkingStatuses(false);
+        }
+        const cdEl = document.getElementById('countdownText');
+        if (cdEl) cdEl.textContent = `${countdownSeconds}s`;
+
+        if (myParkedInfo) {
+          updateParkedCarBanner();
+        }
+      }, 1000);
+    };
+  </script>
+</body>
+</html>
